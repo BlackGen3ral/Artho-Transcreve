@@ -10,10 +10,13 @@ Aplicativo para Windows e extensão para Chrome, Edge e Brave. O texto aparece n
 2. No app, clique em **Baixar modelo de voz**. Esse passo usa internet e baixa cerca de 190 MB para o seu perfil do Windows, incluindo o modelo Whisper Small e o detector de fala. Se você já usava uma versão anterior, baixe o novo modelo uma vez. Deixe o app aberto.
 3. Abra `chrome://extensions`, `edge://extensions` ou `brave://extensions`, conforme seu navegador. Ative **Modo de desenvolvedor**, selecione **Carregar sem compactação** e indique a pasta **extensao** extraída do ZIP. Use um navegador Chromium atualizado.
 4. Abra o [TikTok](https://www.tiktok.com/) no navegador e dê play em um vídeo com som. Clique no ícone **Artho Transcreve para TikTok** no menu de extensões.
-5. Clique em **Copiar código** no app e cole o código na extensão. Clique em **Iniciar transcrição**. O navegador guarda o código após a primeira conexão bem-sucedida.
-6. Na extensão, clique em **Parar transcrição** para concluir os trechos pendentes. Para encerrar de imediato, clique em **Parar captura** no app. Use **Copiar texto** ou **Salvar TXT** para guardar a transcrição.
+5. Clique em **Copiar código do app** no Windows e cole o código na extensão. Clique em **Iniciar captura**. O navegador guarda o código após a primeira conexão bem-sucedida.
+6. Veja o **Nível de áudio** para confirmar que a captura recebe som. Se o nível ficar zerado, verifique se o vídeo está tocando com áudio na aba em que iniciou a captura.
+7. Use **Finalizar captura** no app ou na extensão para processar o trecho pendente. Use **Copiar** ou **Salvar TXT** para guardar a transcrição.
 
 O idioma padrão é português. Escolha **Detectar idioma**, **Inglês** ou **Espanhol** antes de iniciar se o vídeo estiver em outro idioma. A precisão varia com o som, a música e a fala. O app captura a aba do TikTok selecionada, incluindo novos vídeos do feed enquanto a captura estiver ativa. Capturas simultâneas, o app móvel e o áudio de outros programas ficam fora deste fluxo.
+
+A extensão tenta fechar o trecho atual ao detectar pausa, busca no vídeo ou troca de vídeo. Depois de uma atualização da extensão, recarregue abas do TikTok que já estavam abertas para que reconheçam essas transições.
 
 ## Atualizações automáticas
 

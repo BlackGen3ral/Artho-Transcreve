@@ -68,6 +68,8 @@ async function start(code) {
 
 async function route(message) {
   switch (message.command) {
+    case 'media-boundary':
+      return await hasOffscreen() ? sendCapture('split-tab', { tabId: message.tabId }) : {};
     case 'start': return start(message.code);
     case 'status': {
       const current = await captureStatus();
@@ -133,6 +135,10 @@ void scheduleUpdateChecks().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.target !== 'worker' || sender.id !== chrome.runtime.id) return;
+  if (message.command === 'media-boundary') {
+    if (sender.frameId !== 0 || !Number.isInteger(sender.tab?.id) || !isTikTok(sender.url)) return;
+    message = { ...message, tabId: sender.tab.id };
+  }
   route(message).then(respond, error => respond({ error: error.message }));
   return true;
 });

@@ -4,7 +4,9 @@ let current;
 let recentError = '';
 
 function status() {
-  return { state: current?.state || 'idle', error: recentError };
+  const state = current?.state || 'idle';
+  const level = state === 'active' && Date.now() - current.meterAt < 1400 ? current.level : 0;
+  return { state, level, pending: current?.pending || 0, error: recentError };
 }
 
 function badge(active) {
@@ -14,6 +16,8 @@ function badge(active) {
 async function post(session, route, { audio, offset } = {}) {
   const headers = { 'X-Artho-Code': session.code };
   if (session.id) headers['X-Artho-Session'] = session.id;
+  if (route === '/start') headers['X-Artho-Capture'] = '2';
+  if (route === '/ping') headers['X-Artho-Level'] = String(status().level);
   if (audio) {
     headers['X-Artho-Offset'] = String(offset);
     headers['Content-Type'] = 'application/octet-stream';
@@ -32,7 +36,7 @@ async function post(session, route, { audio, offset } = {}) {
     const { error } = await response.json().catch(() => ({}));
     throw new Error(error || 'Falha ao conectar ao app.');
   }
-  return route === '/start' ? response.json() : undefined;
+  return route === '/start' || (route === '/ping' && response.status === 200) ? response.json() : undefined;
 }
 
 function enqueue(session, { audio, offset }) {
@@ -81,9 +85,21 @@ async function stop(session, error = '', flush = true) {
 async function start({ streamId, code, tabId }) {
   if (current) return status();
   recentError = '';
-  const session = { tabId, code, state: 'busy', pending: 0, queue: Promise.resolve() };
+  const session = { tabId, code, state: 'busy', pending: 0, queue: Promise.resolve(), level: 0, meterAt: 0 };
   current = session;
   try {
+    const context = new AudioContext();
+    session.context = context;
+    await context.audioWorklet.addModule('pcm-worklet.js');
+    if (current !== session || session.state !== 'busy') return status();
+    const result = await post(session, '/start');
+    session.id = result.session;
+    if (current !== session || session.state !== 'busy') {
+      await post(session, '/stop').catch(() => {});
+      disconnect(session);
+      return status();
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
       video: false,
@@ -95,30 +111,20 @@ async function start({ streamId, code, tabId }) {
     }
     for (const track of stream.getTracks()) track.onended = () => { void stop(session); };
 
-    const context = new AudioContext();
-    session.context = context;
     const source = context.createMediaStreamSource(stream);
     // Keep the listening path at the device rate and in stereo. Only the worklet branch is resampled.
     source.connect(context.destination);
-    await Promise.race([context.resume(), new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('O navegador bloqueou a reprodução da aba. Dê play no vídeo e tente novamente.')), 4500);
-    })]);
-    await context.audioWorklet.addModule('pcm-worklet.js');
-
-    const result = await post(session, '/start');
-    session.id = result.session;
-    if (current !== session || session.state !== 'busy') {
-      await post(session, '/stop').catch(() => {});
-      disconnect(session);
-      return status();
-    }
-
     const node = new AudioWorkletNode(context, 'artho-pcm', {
       channelCount: 1, channelCountMode: 'explicit', numberOfOutputs: 1,
       processorOptions: { chunkSeconds: result.chunkSeconds },
     });
     session.node = node;
     node.port.onmessage = ({ data }) => {
+      if (Number.isInteger(data.level)) {
+        session.level = data.level;
+        session.meterAt = Date.now();
+        return;
+      }
       enqueue(session, data);
       if (data.flushed) session.onFlush?.();
     };
@@ -129,17 +135,27 @@ async function start({ streamId, code, tabId }) {
     const silent = context.createGain();
     silent.gain.value = 0;
     node.connect(silent).connect(context.destination);
+    await Promise.race([context.resume(), new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('O navegador bloqueou a reprodução da aba. Dê play no vídeo e tente novamente.')), 4500);
+    })]);
+    if (current !== session || session.state !== 'busy') return status();
     session.state = 'active';
-    session.heartbeat = setInterval(() => {
-      if (!session.abort) {
-        post(session, '/ping').catch(error => { void stop(session, error.message, false); });
-      }
-    }, 3000);
+    session.heartbeat = setInterval(() => { void heartbeat(session); }, 1000);
     badge(true);
     return status();
   } catch (error) {
     return stop(session, error.message, false);
   }
+}
+
+async function heartbeat(session) {
+  if (session.abort || session.pinging) return;
+  session.pinging = true;
+  try {
+    const result = await post(session, '/ping');
+    if (result?.finish && session.state === 'active') void stop(session);
+  } catch (error) { void stop(session, error.message, false); }
+  finally { session.pinging = false; }
 }
 
 async function route(message) {
@@ -148,6 +164,9 @@ async function route(message) {
     case 'status': return status();
     case 'stop': return stop(current);
     case 'stop-tab': return current?.tabId === message.tabId ? stop(current) : status();
+    case 'split-tab':
+      if (current?.tabId === message.tabId && current.state === 'active') current.node.port.postMessage('split');
+      return status();
     default: return status();
   }
 }

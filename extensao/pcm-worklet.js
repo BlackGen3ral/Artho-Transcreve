@@ -25,7 +25,7 @@ function coefficients(inputRate) {
 }
 
 class ArthoPcm extends AudioWorkletProcessor {
-  constructor(options) {
+  constructor(options = {}) {
     super();
     const seconds = options.processorOptions?.chunkSeconds === 10 ? 10 : 4;
     this.samples = new ArrayBuffer(PCM_RATE * seconds * 2);
@@ -36,6 +36,8 @@ class ArthoPcm extends AudioWorkletProcessor {
     this.frameEnergy = 0;
     this.loudFrames = 0;
     this.quietFrames = 0;
+    this.meterSamples = 0;
+    this.meterEnergy = 0;
     this.recording = true;
     this.filter = sampleRate === PCM_RATE ? null : coefficients(sampleRate);
     this.ring = new Float32Array(TAPS * 2);
@@ -45,6 +47,8 @@ class ArthoPcm extends AudioWorkletProcessor {
       if (data === 'flush') {
         this.recording = false;
         this.send(true);
+      } else if (data === 'split' && this.recording) {
+        this.send();
       }
     };
   }
@@ -66,6 +70,15 @@ class ArthoPcm extends AudioWorkletProcessor {
   append(sample) {
     const clipped = Math.min(1, Math.max(-1, sample));
     this.frameEnergy += clipped * clipped;
+    this.meterEnergy += clipped * clipped;
+    this.meterSamples++;
+    if (this.meterSamples === PCM_RATE / 5) {
+      const rms = Math.sqrt(this.meterEnergy / this.meterSamples);
+      const level = Math.round(Math.min(100, Math.max(0, (20 * Math.log10(rms) + 55) * 2)));
+      this.port.postMessage({ level });
+      this.meterSamples = 0;
+      this.meterEnergy = 0;
+    }
     this.view.setInt16(this.position * 2, clipped * (clipped < 0 ? 32768 : 32767), true);
     this.position++;
     if (this.position % FRAME_SAMPLES === 0) {

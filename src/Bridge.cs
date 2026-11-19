@@ -12,12 +12,15 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     private const int ChunkSeconds = 10;
     private const int MaxPcmBytes = ChunkSeconds * WhisperEngine.PcmRate * sizeof(short);
 
-    private sealed class Capture(string language)
+    private sealed class Capture(string language, bool supportsFinish)
     {
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public string Language { get; } = language;
         public DateTime Start { get; } = DateTime.Now;
         public long Heartbeat { get; set; } = Environment.TickCount64;
+        public bool SupportsFinish { get; } = supportsFinish;
+        public long FinishRequestedAt { get; set; }
+        public int Level { get; set; }
         public CancellationTokenSource Cancellation { get; } = new();
     }
 
@@ -30,6 +33,24 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     public Action<string>? Status { get; set; }
     public Action<DateTime, string>? Transcript { get; set; }
     public bool Capturing { get { lock (gate) return active != null; } }
+    public bool Finishing { get { lock (gate) return active?.FinishRequestedAt > 0; } }
+    public int AudioLevel { get { lock (gate) return active?.Level ?? 0; } }
+
+    public void Finish()
+    {
+        lock (gate)
+        {
+            if (active == null || active.FinishRequestedAt > 0) return;
+            if (!active.SupportsFinish)
+            {
+                Cancel("Captura encerrada no app.", active);
+                return;
+            }
+            active.FinishRequestedAt = Environment.TickCount64;
+            active.Level = 0;
+            Status?.Invoke("Finalizando os trechos recebidos…");
+        }
+    }
 
     public bool TryBeginUpdate()
     {
@@ -72,7 +93,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
                 if (HttpMethods.IsOptions(ctx.Request.Method))
                 {
                     ctx.Response.Headers.AccessControlAllowMethods = "POST, OPTIONS";
-                    ctx.Response.Headers.AccessControlAllowHeaders = "X-Artho-Code, X-Artho-Session, X-Artho-Offset, Content-Type";
+                    ctx.Response.Headers.AccessControlAllowHeaders = "X-Artho-Code, X-Artho-Session, X-Artho-Offset, X-Artho-Capture, X-Artho-Level, Content-Type";
                     ctx.Response.Headers["Access-Control-Allow-Private-Network"] = "true";
                     ctx.Response.StatusCode = 204;
                     return;
@@ -86,13 +107,13 @@ internal sealed class Bridge(WhisperEngine engine, string code)
             }
             await next(ctx);
         });
-        app.MapPost("/start", StartCapture);
+        app.MapPost("/start", (Delegate)StartCapture);
         app.MapPost("/version", () => Results.Json(new
         {
             extensionVersion = AppUpdate.ExtensionFolder(AppUpdate.InstalledApp) is { } folder ?
                 AppUpdate.ReadExtensionVersion(folder)?.ToString() : null
         }));
-        app.MapPost("/ping", (HttpContext ctx) => Find(ctx) != null ? Results.NoContent() : Stopped());
+        app.MapPost("/ping", (Delegate)HeartbeatResult);
         app.MapPost("/stop", (HttpContext ctx) =>
         {
             var capture = Find(ctx);
@@ -104,7 +125,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         await app.StartAsync(cancellation);
     }
 
-    private IResult StartCapture()
+    private IResult StartCapture(HttpContext ctx)
     {
         Expire();
         lock (gate)
@@ -115,9 +136,23 @@ internal sealed class Bridge(WhisperEngine engine, string code)
                 return Reply("Abra o app e clique em Baixar modelo de voz para preparar a transcrição.", 503);
             if (active != null)
                 return Reply("Já existe uma captura ativa neste PC.", 409);
-            active = new Capture(Language);
-            Status?.Invoke("Capturando áudio do TikTok…");
+            active = new Capture(Language, ctx.Request.Headers["X-Artho-Capture"] == "2");
+            Status?.Invoke("Captura ativa. Dê play no vídeo para transcrever.");
             return Results.Json(new { session = active.Id, chunkSeconds = ChunkSeconds });
+        }
+    }
+
+    private IResult HeartbeatResult(HttpContext ctx)
+    {
+        lock (gate)
+        {
+            var capture = Find(ctx);
+            if (capture == null) return Stopped();
+            if (!capture.SupportsFinish) return Results.NoContent();
+            var finish = capture.FinishRequestedAt > 0;
+            capture.Level = !finish && int.TryParse(ctx.Request.Headers["X-Artho-Level"], out var level)
+                ? Math.Clamp(level, 0, 100) : 0;
+            return Results.Json(new { finish });
         }
     }
 
@@ -173,8 +208,14 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     public void Expire()
     {
         lock (gate)
-            if (active != null && Environment.TickCount64 - active.Heartbeat > 15_000)
+        {
+            if (active == null) return;
+            var now = Environment.TickCount64;
+            if (now - active.Heartbeat > 15_000)
                 Cancel("Conexão com a extensão encerrada. Inicie outra captura no TikTok.", active);
+            else if (active.FinishRequestedAt > 0 && now - active.FinishRequestedAt > 90_000)
+                Cancel("A finalização demorou demais. O texto já reconhecido continua na janela.", active);
+        }
     }
 
     public void Cancel(string message) => Cancel(message, null);
