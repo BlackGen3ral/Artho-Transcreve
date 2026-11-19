@@ -95,10 +95,10 @@ async function start({ streamId, code, tabId }) {
     }
     for (const track of stream.getTracks()) track.onended = () => { void stop(session); };
 
-    const context = new AudioContext({ sampleRate: 16000 });
+    const context = new AudioContext();
     session.context = context;
     const source = context.createMediaStreamSource(stream);
-    // Captured tab audio normally stops playing to the user. Route it back to the speakers.
+    // Keep the listening path at the device rate and in stereo. Only the worklet branch is resampled.
     source.connect(context.destination);
     await Promise.race([context.resume(), new Promise((_, reject) => {
       setTimeout(() => reject(new Error('O navegador bloqueou a reprodução da aba. Dê play no vídeo e tente novamente.')), 4500);
@@ -115,6 +115,7 @@ async function start({ streamId, code, tabId }) {
 
     const node = new AudioWorkletNode(context, 'artho-pcm', {
       channelCount: 1, channelCountMode: 'explicit', numberOfOutputs: 1,
+      processorOptions: { chunkSeconds: result.chunkSeconds },
     });
     session.node = node;
     node.port.onmessage = ({ data }) => {

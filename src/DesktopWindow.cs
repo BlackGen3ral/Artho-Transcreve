@@ -17,7 +17,7 @@ internal sealed class DesktopWindow : Form
     };
     private readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Accent, AutoEllipsis = true };
     private readonly Label updateStatus = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Muted, AutoEllipsis = true };
-    private readonly Button setup = MakeButton("Baixar motor", true);
+    private readonly Button setup = MakeButton("Baixar modelo de voz", true);
     private readonly Button stop = MakeButton("Parar captura");
     private readonly Button copy = MakeButton("Copiar texto");
     private readonly Button export = MakeButton("Salvar TXT");
@@ -107,7 +107,7 @@ internal sealed class DesktopWindow : Form
                 heartbeat.Start();
                 pairing.Enabled = true;
                 setup.Enabled = true;
-                SetStatus(engine.Ready ? "Pronto. Inicie a transcrição pela extensão no TikTok." : "Baixe o motor para começar. Cerca de 60 MB, uma única vez.");
+                SetStatus(engine.Ready ? "Pronto. Inicie a transcrição pela extensão no TikTok." : "Baixe o modelo de voz para começar. Cerca de 190 MB, uma única vez.");
             }
             catch (OperationCanceledException) when (closing) { }
             catch (Exception)
@@ -138,11 +138,11 @@ internal sealed class DesktopWindow : Form
         {
             await engine.InstallAsync(new Progress<string>(message => SetStatus(message)), lifetime.Token);
             setup.Visible = false;
-            SetStatus("Motor pronto. Inicie a transcrição pela extensão no TikTok.");
+            SetStatus("Modelo pronto. Inicie a transcrição pela extensão no TikTok.");
         }
         catch (Exception error) when (!closing)
         {
-            SetStatus("Falha no download. Verifique a conexão e clique em Baixar motor.");
+            SetStatus("Falha no download. Verifique a conexão e tente baixar novamente.");
             MessageBox.Show(this, error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception) when (closing) { }

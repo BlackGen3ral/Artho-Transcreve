@@ -9,6 +9,9 @@ namespace Artho.Transcreve;
 
 internal sealed class Bridge(WhisperEngine engine, string code)
 {
+    private const int ChunkSeconds = 10;
+    private const int MaxPcmBytes = ChunkSeconds * WhisperEngine.PcmRate * sizeof(short);
+
     private sealed class Capture(string language)
     {
         public string Id { get; } = Guid.NewGuid().ToString("N");
@@ -50,7 +53,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         builder.WebHost.ConfigureKestrel(options =>
         {
             options.Listen(System.Net.IPAddress.Loopback, 48721);
-            options.Limits.MaxRequestBodySize = 200_000;
+            options.Limits.MaxRequestBodySize = MaxPcmBytes;
         });
         var app = builder.Build();
         server = app;
@@ -109,12 +112,12 @@ internal sealed class Bridge(WhisperEngine engine, string code)
             if (updating)
                 return Reply("O app está instalando uma atualização. Tente novamente em instantes.", 503);
             if (!engine.Ready)
-                return Reply("Abra o app e conclua a instalação do motor de transcrição.", 503);
+                return Reply("Abra o app e clique em Baixar modelo de voz para preparar a transcrição.", 503);
             if (active != null)
                 return Reply("Já existe uma captura ativa neste PC.", 409);
             active = new Capture(Language);
             Status?.Invoke("Capturando áudio do TikTok…");
-            return Results.Json(new { session = active.Id });
+            return Results.Json(new { session = active.Id, chunkSeconds = ChunkSeconds });
         }
     }
 
@@ -135,7 +138,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         var capture = Find(ctx);
         if (capture == null)
             return Stopped();
-        if (ctx.Request.ContentLength is not (>= 2 and <= 160_000) ||
+        if (ctx.Request.ContentLength is not (>= 2 and <= MaxPcmBytes) ||
             ctx.Request.ContentLength % 2 != 0 ||
             !double.TryParse(ctx.Request.Headers["X-Artho-Offset"], System.Globalization.CultureInfo.InvariantCulture, out var offset) ||
             !double.IsFinite(offset) || offset < 0 || offset > 31_536_000)
