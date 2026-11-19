@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Artho Transcreve</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Artho Transcreve</h1>
+    <p>Áudio do TikTok em texto no Windows.</p>
+    <form>
+      <label for="code">Código do app</label>
+      <input type="password" id="code" maxlength="32" placeholder="Cole o código copiado no app" autocomplete="off" spellcheck="false">
+      <button id="start" type="submit">Iniciar transcrição</button>
+      <button id="stop" type="button" hidden>Parar transcrição</button>
+    </form>
+    <div id="status" role="status" aria-live="polite"></div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
