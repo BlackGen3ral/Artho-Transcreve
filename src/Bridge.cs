@@ -21,11 +21,27 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     private readonly object gate = new();
     private readonly SemaphoreSlim processor = new(1);
     private Capture? active;
+    private bool updating;
     private WebApplication? server;
     public string Language { get; set; } = "pt";
     public Action<string>? Status { get; set; }
     public Action<DateTime, string>? Transcript { get; set; }
     public bool Capturing { get { lock (gate) return active != null; } }
+
+    public bool TryBeginUpdate()
+    {
+        lock (gate)
+        {
+            if (active != null || updating) return false;
+            updating = true;
+            return true;
+        }
+    }
+
+    public void EndUpdate()
+    {
+        lock (gate) updating = false;
+    }
 
     public async Task StartAsync(CancellationToken cancellation = default)
     {
@@ -68,6 +84,11 @@ internal sealed class Bridge(WhisperEngine engine, string code)
             await next(ctx);
         });
         app.MapPost("/start", StartCapture);
+        app.MapPost("/version", () => Results.Json(new
+        {
+            extensionVersion = AppUpdate.ExtensionFolder(AppUpdate.InstalledApp) is { } folder ?
+                AppUpdate.ReadExtensionVersion(folder)?.ToString() : null
+        }));
         app.MapPost("/ping", (HttpContext ctx) => Find(ctx) != null ? Results.NoContent() : Stopped());
         app.MapPost("/stop", (HttpContext ctx) =>
         {
@@ -85,6 +106,8 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         Expire();
         lock (gate)
         {
+            if (updating)
+                return Reply("O app está instalando uma atualização. Tente novamente em instantes.", 503);
             if (!engine.Ready)
                 return Reply("Abra o app e conclua a instalação do motor de transcrição.", 503);
             if (active != null)

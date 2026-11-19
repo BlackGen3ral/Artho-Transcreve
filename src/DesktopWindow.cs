@@ -16,6 +16,7 @@ internal sealed class DesktopWindow : Form
         AccessibleName = "Transcrição"
     };
     private readonly Label status = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Accent, AutoEllipsis = true };
+    private readonly Label updateStatus = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Muted, AutoEllipsis = true };
     private readonly Button setup = MakeButton("Baixar motor", true);
     private readonly Button stop = MakeButton("Parar captura");
     private readonly Button copy = MakeButton("Copiar texto");
@@ -27,6 +28,11 @@ internal sealed class DesktopWindow : Form
     private readonly List<(DateTime Time, string Text)> entries = new();
     private readonly WhisperEngine engine;
     private readonly Bridge bridge;
+    private AppUpdate.Pending? pendingUpdate;
+    private DateTime nextUpdateCheck;
+    private bool checkingUpdate;
+    private bool installingEngine;
+    private bool applyingUpdate;
     private bool closing;
 
     public DesktopWindow(WhisperEngine engine, string code)
@@ -73,11 +79,8 @@ internal sealed class DesktopWindow : Form
         panel.Controls.Add(transcript);
         layout.Controls.Add(panel, 0, 4);
         layout.Controls.Add(Row(copy, export, clear), 0, 5);
-        layout.Controls.Add(new Label
-        {
-            Text = "Processamento local • A transcrição fica nesta janela até você salvar.",
-            ForeColor = Muted, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft
-        }, 0, 6);
+        updateStatus.Text = $"Versão {AppUpdate.Current.ToString(3)} • Atualizações automáticas";
+        layout.Controls.Add(updateStatus, 0, 6);
 
         setup.Visible = !engine.Ready;
         setup.Enabled = false;
@@ -90,7 +93,11 @@ internal sealed class DesktopWindow : Form
         copy.Click += (_, _) => CopyToClipboard(GetText());
         export.Click += (_, _) => ExportText();
         clear.Click += (_, _) => { entries.Clear(); ResetTranscript(); };
-        heartbeat.Tick += (_, _) => bridge.Expire();
+        heartbeat.Tick += async (_, _) =>
+        {
+            bridge.Expire();
+            await UpdateAsync();
+        };
         Shown += async (_, _) =>
         {
             try
@@ -116,6 +123,8 @@ internal sealed class DesktopWindow : Form
             Enabled = false;
             heartbeat.Stop();
             lifetime.Cancel();
+            if (!applyingUpdate && pendingUpdate != null)
+                AppUpdate.Discard(pendingUpdate.Stage);
             try { await bridge.CloseAsync(); }
             finally { BeginInvoke(Close); }
         };
@@ -123,6 +132,7 @@ internal sealed class DesktopWindow : Form
 
     private async Task SetupAsync()
     {
+        installingEngine = true;
         setup.Enabled = false;
         try
         {
@@ -136,7 +146,58 @@ internal sealed class DesktopWindow : Form
             MessageBox.Show(this, error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception) when (closing) { }
-        finally { if (!closing) setup.Enabled = true; }
+        finally
+        {
+            installingEngine = false;
+            if (!closing) setup.Enabled = true;
+        }
+    }
+
+    private async Task UpdateAsync()
+    {
+        if (closing || checkingUpdate || applyingUpdate) return;
+        if (pendingUpdate == null && DateTime.UtcNow >= nextUpdateCheck)
+        {
+            checkingUpdate = true;
+            nextUpdateCheck = DateTime.UtcNow.AddMinutes(15);
+            try
+            {
+                var update = await AppUpdate.CheckAsync(lifetime.Token);
+                if (closing)
+                {
+                    if (update != null) AppUpdate.Discard(update.Stage);
+                    return;
+                }
+                pendingUpdate = update;
+            }
+            catch (Exception)
+            {
+                if (!closing)
+                    updateStatus.Text = $"Versão {AppUpdate.Current.ToString(3)} • Nova tentativa de atualização em 15 min";
+            }
+            finally { checkingUpdate = false; }
+        }
+
+        if (pendingUpdate == null || closing) return;
+        if (installingEngine || entries.Count != 0 || !bridge.TryBeginUpdate())
+        {
+            updateStatus.Text = $"Versão {pendingUpdate.Version.ToString(3)} pronta • Aguardando captura e transcrição livres";
+            return;
+        }
+
+        try
+        {
+            AppUpdate.StartInstaller(pendingUpdate);
+            applyingUpdate = true;
+            Close();
+        }
+        catch (Exception)
+        {
+            AppUpdate.Discard(pendingUpdate.Stage);
+            pendingUpdate = null;
+            bridge.EndUpdate();
+            updateStatus.Text = "Falha ao iniciar a atualização. Uma nova tentativa será feita automaticamente.";
+        }
     }
 
     private void SetStatus(string message)

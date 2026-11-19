@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Artho Transcreve para TikTok",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Captura o áudio da aba do TikTok e envia ao app Artho Transcreve neste PC.",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "tabCapture", "offscreen", "storage"],
+  "permissions": ["activeTab", "tabCapture", "offscreen", "storage", "alarms"],
   "host_permissions": ["https://*.tiktok.com/*", "http://127.0.0.1/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Artho Transcreve" }

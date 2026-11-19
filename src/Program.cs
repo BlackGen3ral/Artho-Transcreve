@@ -3,9 +3,15 @@ namespace Artho.Transcreve;
 internal static class Program
 {
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args is ["--apply-update", _, _, _])
+        {
+            try { AppUpdate.RunInstaller(args); }
+            catch (Exception error) { MessageBox.Show(error.Message, "Atualização do Artho Transcreve", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            return;
+        }
         using var instance = new Mutex(true, @"Local\ArthoTranscreve-1", out var first);
         if (!first)
         {

@@ -1,6 +1,9 @@
 const OFFSCREEN = 'offscreen.html';
+const UPDATE_ALARM = 'artho-extension-update';
 let creating;
 let starting = false;
+let checkingUpdate;
+let reloading = false;
 
 async function hasOffscreen() {
   const contexts = await chrome.runtime.getContexts({
@@ -40,7 +43,7 @@ async function updateBadge(active) {
 }
 
 async function start(code) {
-  if (starting) return { state: 'busy' };
+  if (starting || reloading) return { state: 'busy' };
   if (!/^[a-f0-9]{32}$/i.test(code || '')) {
     return { error: 'Cole o código de conexão do app Artho Transcreve.' };
   }
@@ -66,12 +69,67 @@ async function start(code) {
 async function route(message) {
   switch (message.command) {
     case 'start': return start(message.code);
-    case 'status': return await hasOffscreen() ? sendCapture('status') : { state: 'idle' };
+    case 'status': {
+      const current = await captureStatus();
+      if (current.state === 'idle') {
+        const error = await checkExtensionUpdate();
+        if (error && !current.error) return { ...current, error };
+      }
+      return current;
+    }
     case 'stop': return await hasOffscreen() ? sendCapture('stop') : { state: 'idle' };
     case 'badge': await updateBadge(message.active); return {};
     default: return { error: 'Comando desconhecido.' };
   }
 }
+
+async function captureStatus() {
+  return await hasOffscreen() ? sendCapture('status') : { state: 'idle' };
+}
+
+function checkExtensionUpdate() {
+  if (!checkingUpdate) {
+    checkingUpdate = refreshExtension().catch(() => undefined).finally(() => { checkingUpdate = undefined; });
+  }
+  return checkingUpdate;
+}
+
+async function refreshExtension() {
+  if (starting || reloading) return;
+  const { pairingCode, lastReloadVersion } = await chrome.storage.local.get(['pairingCode', 'lastReloadVersion']);
+  if (!pairingCode) return;
+  const response = await fetch('http://127.0.0.1:48721/version', {
+    method: 'POST', headers: { 'X-Artho-Code': pairingCode },
+    signal: AbortSignal.timeout(1500), redirect: 'error',
+  });
+  if (!response.ok) return;
+  const { extensionVersion } = await response.json();
+  if (!/^\d+\.\d+\.\d+$/.test(extensionVersion || '')) return;
+  const current = chrome.runtime.getManifest().version.split('.').map(Number);
+  const difference = extensionVersion.split('.').map((part, index) => Number(part) - (current[index] || 0));
+  if ((difference.find(part => part !== 0) || 0) <= 0) return;
+  if (lastReloadVersion === extensionVersion) {
+    return 'Recarregue a extensão em Gerenciar extensões. Use a pasta extensao ao lado do app.';
+  }
+  if (starting || (await captureStatus()).state !== 'idle' || starting) return;
+  reloading = true;
+  try {
+    await chrome.storage.local.set({ lastReloadVersion: extensionVersion });
+    chrome.runtime.reload();
+  } finally { reloading = false; }
+}
+
+async function scheduleUpdateChecks() {
+  if (!await chrome.alarms.get(UPDATE_ALARM)) {
+    await chrome.alarms.create(UPDATE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
+  }
+}
+
+chrome.runtime.onStartup.addListener(() => { void checkExtensionUpdate(); });
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === UPDATE_ALARM) void checkExtensionUpdate();
+});
+void scheduleUpdateChecks().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.target !== 'worker' || sender.id !== chrome.runtime.id) return;
