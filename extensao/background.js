@@ -1,3 +1,5 @@
+importScripts('desktop-link.js');
+
 const OFFSCREEN = 'offscreen.html';
 const UPDATE_ALARM = 'artho-extension-update';
 let creating;
@@ -42,7 +44,7 @@ async function updateBadge(active) {
   await chrome.action.setBadgeText({ text: active ? 'REC' : '' });
 }
 
-async function start(code) {
+async function start(code, fromDesktop = false) {
   if (starting || reloading) return { state: 'busy' };
   if (!/^[a-f0-9]{32}$/i.test(code || '')) {
     return { error: 'Cole o código de conexão do app Artho Transcreve.' };
@@ -55,10 +57,18 @@ async function start(code) {
     const current = await sendCapture('status');
     if (current.state !== 'idle') return current;
 
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    let streamId;
+    try { streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }); }
+    catch (error) {
+      if (fromDesktop && /invoked|grant|permission|activeTab/i.test(error.message)) {
+        return { error: 'Abra o ícone da extensão nessa aba do TikTok uma vez e clique em Iniciar captura no Windows.' };
+      }
+      throw error;
+    }
     const result = await sendCapture('start', { streamId, code, tabId: tab.id });
     if (result.state === 'active') {
       await chrome.storage.local.set({ pairingCode: code });
+      listenForDesktop();
       const latest = await chrome.tabs.get(tab.id).catch(() => null);
       if (!isTikTok(latest?.url)) return await sendCapture('stop');
     }
@@ -71,7 +81,9 @@ async function route(message) {
     case 'media-boundary':
       return await hasOffscreen() ? sendCapture('split-tab', { tabId: message.tabId }) : {};
     case 'start': return start(message.code);
+    case 'pair': return pairDesktop(message.code);
     case 'status': {
+      listenForDesktop();
       const current = await captureStatus();
       if (current.state === 'idle') {
         const error = await checkExtensionUpdate();
@@ -127,11 +139,16 @@ async function scheduleUpdateChecks() {
   }
 }
 
-chrome.runtime.onStartup.addListener(() => { void checkExtensionUpdate(); });
+chrome.runtime.onStartup.addListener(() => { listenForDesktop(); void checkExtensionUpdate(); });
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === UPDATE_ALARM) void checkExtensionUpdate();
+  if (alarm.name === UPDATE_ALARM) {
+    listenForDesktop();
+    void checkExtensionUpdate();
+  }
 });
+chrome.tabs.onActivated.addListener(() => { listenForDesktop(); });
 void scheduleUpdateChecks().catch(() => {});
+listenForDesktop();
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.target !== 'worker' || sender.id !== chrome.runtime.id) return;

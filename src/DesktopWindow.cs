@@ -26,6 +26,7 @@ internal sealed class DesktopWindow : Form
     private readonly Label levelStatus = MakeLabel("Sem captura", 9, Muted);
     private readonly SignalMeter meter = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 0, 2) };
     private readonly Button setup = MakeButton("Baixar modelo de voz", true);
+    private readonly Button begin = MakeButton("Iniciar captura", true);
     private readonly Button stop = MakeButton("Finalizar captura");
     private readonly Button copy = MakeButton("Copiar");
     private readonly Button export = MakeButton("Salvar TXT", true);
@@ -48,6 +49,7 @@ internal sealed class DesktopWindow : Form
     private bool installingEngine;
     private bool applyingUpdate;
     private bool closing;
+    private bool ready;
 
     public DesktopWindow(WhisperEngine engine, string code)
     {
@@ -56,8 +58,9 @@ internal sealed class DesktopWindow : Form
         bridge.Status = message => OnUi(() => SetStatus(message));
         bridge.Transcript = (time, text) => OnUi(() => Append(time, text));
         Text = "Artho Transcreve";
+        Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
         ClientSize = new Size(1020, 645);
-        MinimumSize = new Size(795, 575);
+        MinimumSize = new Size(795, 615);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Canvas;
         ForeColor = Ink;
@@ -88,11 +91,11 @@ internal sealed class DesktopWindow : Form
 
         var capturePanel = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 12, BackColor = Surface,
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 13, BackColor = Surface,
             Padding = new Padding(18), Margin = new Padding(0, 0, 18, 0)
         };
         capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var height in new[] { 33, 24, 48, 26, 19, 24, 27, 37, 43, 43, 43 })
+        foreach (var height in new[] { 33, 24, 54, 26, 19, 24, 27, 37, 43, 43, 43, 43 })
             capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         capturePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         capturePanel.Controls.Add(MakeLabel("Captura", 14, Ink, bold: true), 0, 0);
@@ -124,14 +127,15 @@ internal sealed class DesktopWindow : Form
         {
             if (CopyToClipboard(code)) pairing.Text = "Código copiado";
         };
-        foreach (var button in new[] { pairing, setup, stop })
+        foreach (var button in new[] { pairing, setup, begin, stop })
         {
             button.Dock = DockStyle.Fill;
             button.Margin = new Padding(0, 5, 0, 2);
         }
         capturePanel.Controls.Add(pairing, 0, 8);
-        capturePanel.Controls.Add(stop, 0, 9);
-        capturePanel.Controls.Add(setup, 0, 10);
+        capturePanel.Controls.Add(begin, 0, 9);
+        capturePanel.Controls.Add(stop, 0, 10);
+        capturePanel.Controls.Add(setup, 0, 11);
         body.Controls.Add(capturePanel, 0, 0);
 
         var editor = new TableLayoutPanel
@@ -154,7 +158,7 @@ internal sealed class DesktopWindow : Form
         empty.RowStyles.Add(new RowStyle(SizeType.Absolute, 49));
         empty.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
         var emptyTitle = MakeLabel("Nenhum texto ainda", 15, Ink, bold: true);
-        var emptyGuide = MakeLabel("Abra o TikTok e inicie pela extensão.\nA transcrição aparece aqui.", 10, Muted);
+        var emptyGuide = MakeLabel("Abra o TikTok e clique em Iniciar captura.\nA transcrição aparece aqui.", 10, Muted);
         emptyTitle.TextAlign = emptyGuide.TextAlign = ContentAlignment.MiddleCenter;
         empty.Controls.Add(emptyTitle, 0, 1);
         empty.Controls.Add(emptyGuide, 0, 2);
@@ -173,6 +177,12 @@ internal sealed class DesktopWindow : Form
         ResetTranscript();
         SetStatus("Iniciando conexão local…");
         setup.Click += async (_, _) => await SetupAsync();
+        begin.Click += (_, _) =>
+        {
+            if (!bridge.Browser.RequestStart()) return;
+            SetStatus(bridge.Browser.Connected ? "Procurando a aba ativa do TikTok…" :
+                "Abra a extensão na aba do TikTok para conectar.");
+        };
         stop.Click += (_, _) => bridge.Finish();
         copy.Click += (_, _) => CopyToClipboard(GetText());
         export.Click += (_, _) => ExportText();
@@ -180,6 +190,8 @@ internal sealed class DesktopWindow : Form
         heartbeat.Tick += async (_, _) =>
         {
             bridge.Expire();
+            if (bridge.Browser.Expire() && !bridge.Capturing)
+                SetStatus("Deixe o TikTok na aba ativa do navegador e abra a extensão uma vez antes de tentar.");
             PaintCaptureState();
             await UpdateAsync();
         };
@@ -189,10 +201,11 @@ internal sealed class DesktopWindow : Form
             {
                 await bridge.StartAsync(lifetime.Token);
                 if (closing) return;
+                ready = true;
                 heartbeat.Start();
                 pairing.Enabled = true;
                 setup.Enabled = true;
-                SetStatus(engine.Ready ? "Pronto. Inicie a transcrição pela extensão no TikTok." : "Baixe o modelo de voz para começar. Cerca de 190 MB, uma única vez.");
+                SetStatus(engine.Ready ? "Abra o TikTok. Autorize a aba ao abrir a extensão pela primeira vez." : "Baixe o modelo de voz para começar. Cerca de 190 MB, uma única vez.");
             }
             catch (OperationCanceledException) when (closing) { }
             catch (Exception)
@@ -223,7 +236,7 @@ internal sealed class DesktopWindow : Form
         {
             await engine.InstallAsync(new Progress<string>(message => SetStatus(message)), lifetime.Token);
             setup.Visible = false;
-            SetStatus("Modelo pronto. Inicie a transcrição pela extensão no TikTok.");
+            SetStatus("Modelo pronto. Abra o TikTok e autorize a aba pela extensão.");
         }
         catch (Exception error) when (!closing)
         {
@@ -297,9 +310,13 @@ internal sealed class DesktopWindow : Form
         var active = bridge.Capturing;
         var finishing = bridge.Finishing;
         var level = bridge.AudioLevel;
-        state.Text = finishing ? "Finalizando" : active ? "Capturando" : installingEngine ? "Baixando modelo" : engine.Ready ? "Aguardando extensão" : "Configuração inicial";
+        var waiting = bridge.Browser.Waiting;
+        state.Text = finishing ? "Finalizando" : active ? "Capturando" : waiting ? "Buscando aba" :
+            installingEngine ? "Baixando modelo" : !engine.Ready ? "Configuração inicial" :
+            bridge.Browser.Connected ? "Extensão conectada" : "Aguardando extensão";
         state.ForeColor = active && !finishing ? Color.FromArgb(146, 226, 195) : Accent;
         stop.Enabled = active && !finishing;
+        begin.Enabled = ready && engine.Ready && !active && !waiting;
         language.Enabled = !active;
         meter.SetLevel(level);
         levelStatus.Text = finishing ? "Processando últimos trechos" :

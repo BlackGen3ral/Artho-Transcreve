@@ -15,10 +15,7 @@ main { padding: 20px; }
 header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 h1 { margin: 0; font-size: 19px; line-height: 1.15; letter-spacing: -.03em; }
 header p { margin: 3px 0 0; color: var(--muted); }
-.mark { display: flex; gap: 3px; align-items: center; justify-content: center; width: 42px; height: 42px; background: var(--accent); border-radius: 12px; }
-.mark i { display: block; width: 2px; height: 9px; border-radius: 2px; background: var(--canvas); }
-.mark i:nth-child(2), .mark i:nth-child(4) { height: 15px; }
-.mark i:nth-child(3) { height: 22px; }
+.mark { display: block; width: 42px; height: 42px; }
 .capture { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .state { display: flex; align-items: center; gap: 8px; }
 .dot { width: 7px; height: 7px; background: var(--accent); border-radius: 50%; }
@@ -37,8 +34,9 @@ input::placeholder { color: var(--muted); }
 button { border: 1px solid transparent; background: var(--accent); color: var(--canvas); font-weight: 700; cursor: pointer; }
 button:hover:not(:disabled) { background: #dcc9ff; }
 button:disabled { opacity: .55; cursor: default; }
-#stop { background: var(--raised); color: var(--ink); border-color: var(--border); }
-#stop:hover:not(:disabled) { background: var(--border); }
+#stop, #connect { background: var(--raised); color: var(--ink); border-color: var(--border); }
+#connect { margin-top: 8px; }
+#stop:hover:not(:disabled), #connect:hover:not(:disabled) { background: var(--border); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .sr-only { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
 [hidden] { display: none; }

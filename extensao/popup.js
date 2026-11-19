@@ -3,6 +3,7 @@ const pair = document.querySelector('#pair');
 const code = document.querySelector('#code');
 const start = document.querySelector('#start');
 const stop = document.querySelector('#stop');
+const connect = document.querySelector('#connect');
 const hint = document.querySelector('#hint');
 const stateText = document.querySelector('#state');
 const level = document.querySelector('#level');
@@ -24,6 +25,7 @@ function show(result = {}) {
   stop.hidden = idle;
   stop.disabled = pending || !active;
   code.disabled = pending || !idle;
+  connect.disabled = pending || !idle;
   stateText.textContent = active ? 'Capturando' : state === 'stopping' ? 'Finalizando' : state === 'busy' ? 'Conectando' : 'Aguardando';
   level.value = active ? (result.level || 0) : 0;
   stop.textContent = active ? 'Finalizar captura' : state === 'busy' ? 'Conectando…' : 'Finalizando…';
@@ -33,19 +35,20 @@ function show(result = {}) {
       : 'Aguardando som. Confirme que o vídeo está tocando com áudio.'
     : state === 'stopping' ? 'Enviando os últimos trechos ao app.'
     : state === 'busy' ? 'Preparando a captura da aba.'
+    : result.paired ? 'Conectado. Volte ao app do Windows e clique em Iniciar captura.'
     : 'Abra o TikTok e dê play para começar.');
   hint.toggleAttribute('data-error', Boolean(result.error));
 }
 
 async function act(command, payload) {
   pending = true;
-  show({ state: command === 'start' ? 'busy' : 'stopping' });
+  show({ state: command === 'stop' ? 'stopping' : 'busy' });
   let result;
   try { result = await ask(command, payload); }
   catch (error) { result = { error: error.message }; }
   pending = false;
   show(result);
-  if (result.state === 'active') pair.open = false;
+  if (result.state === 'active' || result.paired) pair.open = false;
 }
 
 form.addEventListener('submit', event => {
@@ -60,6 +63,7 @@ form.addEventListener('submit', event => {
   void act('start', { code: pairingCode });
 });
 stop.addEventListener('click', () => { void act('stop'); });
+connect.addEventListener('click', () => { void act('pair', { code: code.value.trim() }); });
 
 async function initialize() {
   const preferences = await chrome.storage.local.get('pairingCode').catch(() => ({}));

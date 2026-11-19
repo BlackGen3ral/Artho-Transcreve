@@ -29,6 +29,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     private Capture? active;
     private bool updating;
     private WebApplication? server;
+    public BrowserControl Browser { get; } = new();
     public string Language { get; set; } = "pt";
     public Action<string>? Status { get; set; }
     public Action<DateTime, string>? Transcript { get; set; }
@@ -110,9 +111,12 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         app.MapPost("/start", (Delegate)StartCapture);
         app.MapPost("/version", () => Results.Json(new
         {
+            desktopControl = true,
             extensionVersion = AppUpdate.ExtensionFolder(AppUpdate.InstalledApp) is { } folder ?
                 AppUpdate.ReadExtensionVersion(folder)?.ToString() : null
         }));
+        app.MapPost("/control", (Delegate)WaitForDesktopRequestAsync);
+        app.MapPost("/control-result", (Delegate)ReportDesktopResultAsync);
         app.MapPost("/ping", (Delegate)HeartbeatResult);
         app.MapPost("/stop", (HttpContext ctx) =>
         {
@@ -124,6 +128,24 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         app.MapPost("/audio", (Delegate)ReceiveAsync);
         await app.StartAsync(cancellation);
     }
+
+    private async Task<IResult> WaitForDesktopRequestAsync(HttpContext ctx)
+    {
+        var tab = await ctx.Request.ReadFromJsonAsync<DesktopTab>(ctx.RequestAborted);
+        var request = await Browser.WaitAsync(tab?.HasTikTokTab == true, ctx.RequestAborted);
+        return request == null ? Results.NoContent() : Results.Json(new { request });
+    }
+
+    private async Task<IResult> ReportDesktopResultAsync(HttpContext ctx)
+    {
+        var result = await ctx.Request.ReadFromJsonAsync<DesktopResult>(ctx.RequestAborted);
+        if (result != null && Browser.Complete(result.Id) && !string.IsNullOrWhiteSpace(result.Error))
+            Status?.Invoke(result.Error[..Math.Min(result.Error.Length, 250)]);
+        return Results.NoContent();
+    }
+
+    private sealed record DesktopTab(bool HasTikTokTab);
+    private sealed record DesktopResult(string? Id, string? Error);
 
     private IResult StartCapture(HttpContext ctx)
     {
@@ -235,6 +257,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
 
     public async Task CloseAsync()
     {
+        Browser.Stop();
         Cancel("");
         if (server != null)
         {
