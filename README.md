@@ -12,9 +12,11 @@ Aplicativo para Windows e extensão para Chrome, Edge e Brave. O texto aparece n
 4. Abra o [TikTok](https://www.tiktok.com/) e deixe essa aba ativa no navegador. Na primeira conexão, clique no ícone do **Artho Transcreve**, cole o código de **Copiar código do app** e selecione **Conectar ao app**. A extensão guarda o código.
 5. Dê play no vídeo e clique em **Iniciar captura** no Windows. Você também pode iniciar pela extensão. O navegador exige que você abra o ícone da extensão uma vez na aba que deseja autorizar. Se ele pedir permissão para uma nova aba, abra o ícone nela e tente de novo.
 6. Veja o **Nível de áudio** para confirmar que a captura recebe som. Se o nível ficar zerado, verifique se o vídeo está tocando com áudio na aba em que iniciou a captura.
-7. Use **Finalizar captura** no app ou na extensão para processar o trecho pendente. Use **Copiar** ou **Salvar TXT** para guardar a transcrição.
+7. Use **Finalizar captura** no app ou na extensão para processar o trecho pendente. Clique no texto para corrigir palavras, apagar trechos ou ajustar quebras de linha. **Copiar** e **Salvar TXT** usam o texto visível, incluindo as suas alterações.
 
-O idioma padrão é português. Escolha **Detectar idioma**, **Inglês** ou **Espanhol** antes de iniciar se o vídeo estiver em outro idioma. A precisão varia com o som, a música e a fala. O app captura a aba do TikTok selecionada, incluindo novos vídeos do feed enquanto a captura estiver ativa. Capturas simultâneas, o app móvel e o áudio de outros programas ficam fora deste fluxo.
+O idioma padrão é português. Escolha **Automático**, **Inglês** ou **Espanhol** antes de iniciar se o vídeo estiver em outro idioma. O app captura a aba do TikTok selecionada, incluindo novos vídeos do feed enquanto a captura estiver ativa. Capturas simultâneas, o app móvel e o áudio de outros programas ficam fora deste fluxo.
+
+Em **Precisão**, escolha **Padrão** para usar o Whisper Small ou **Alta precisão** para usar o Whisper Large v3 Turbo. O modo de alta precisão pede um download único de cerca de 574 MB e pode demorar mais para reconhecer cada trecho. Vozes sobre música e letras cantadas ainda podem precisar de correção.
 
 A extensão tenta fechar o trecho atual ao detectar pausa, busca no vídeo ou troca de vídeo. Depois de uma atualização da extensão, recarregue abas do TikTok que já estavam abertas para que reconheçam essas transições.
 
@@ -44,4 +46,4 @@ Distribua a pasta publicada `app` junto com a pasta `extensao`. O motor e o mode
 
 Para publicar uma nova versão, aumente o mesmo número de versão em `src/Artho.Transcreve.csproj` e `extensao/manifest.json`. Execute `pwsh -File ./empacotar.ps1` e publique o ZIP em `downloads/Artho-Transcreve-Windows.zip` e o arquivo `update.json` na raiz de `main`, no mesmo commit que as alterações. O manifesto contém o tamanho e o SHA-256 do ZIP distribuído.
 
-[whisper.cpp](https://github.com/ggml-org/whisper.cpp) · [Modelo Whisper Small quantizado](https://huggingface.co/ggerganov/whisper.cpp/blob/87cd18b47b941d2f65d09981dad23bb7d0481c77/ggml-small-q5_1.bin) · [Detector de fala Silero](https://huggingface.co/ggml-org/whisper-vad)
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) · [Whisper Small](https://huggingface.co/ggerganov/whisper.cpp/blob/87cd18b47b941d2f65d09981dad23bb7d0481c77/ggml-small-q5_1.bin) · [Whisper Large v3 Turbo](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-large-v3-turbo-q5_0.bin) · [Detector de fala Silero](https://huggingface.co/ggml-org/whisper-vad)

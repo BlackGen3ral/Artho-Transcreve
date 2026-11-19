@@ -12,10 +12,11 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     private const int ChunkSeconds = 10;
     private const int MaxPcmBytes = ChunkSeconds * WhisperEngine.PcmRate * sizeof(short);
 
-    private sealed class Capture(string language, bool supportsFinish)
+    private sealed class Capture(string language, RecognitionMode mode, bool supportsFinish)
     {
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public string Language { get; } = language;
+        public RecognitionMode Mode { get; } = mode;
         public DateTime Start { get; } = DateTime.Now;
         public long Heartbeat { get; set; } = Environment.TickCount64;
         public bool SupportsFinish { get; } = supportsFinish;
@@ -31,6 +32,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
     private WebApplication? server;
     public BrowserControl Browser { get; } = new();
     public string Language { get; set; } = "pt";
+    public RecognitionMode Mode { get; set; }
     public Action<string>? Status { get; set; }
     public Action<DateTime, string>? Transcript { get; set; }
     public bool Capturing { get { lock (gate) return active != null; } }
@@ -154,11 +156,12 @@ internal sealed class Bridge(WhisperEngine engine, string code)
         {
             if (updating)
                 return Reply("O app está instalando uma atualização. Tente novamente em instantes.", 503);
-            if (!engine.Ready)
+            var mode = Mode;
+            if (!engine.Ready(mode))
                 return Reply("Abra o app e clique em Baixar modelo de voz para preparar a transcrição.", 503);
             if (active != null)
                 return Reply("Já existe uma captura ativa neste PC.", 409);
-            active = new Capture(Language, ctx.Request.Headers["X-Artho-Capture"] == "2");
+            active = new Capture(Language, mode, ctx.Request.Headers["X-Artho-Capture"] == "2");
             Status?.Invoke("Captura ativa. Dê play no vídeo para transcrever.");
             return Results.Json(new { session = active.Id, chunkSeconds = ChunkSeconds });
         }
@@ -210,7 +213,7 @@ internal sealed class Bridge(WhisperEngine engine, string code)
             {
                 var audio = new byte[(int)ctx.Request.ContentLength.Value];
                 await ctx.Request.Body.ReadExactlyAsync(audio, token);
-                var text = await engine.TranscribeAsync(audio, capture.Language, token);
+                var text = await engine.TranscribeAsync(audio, capture.Language, capture.Mode, token);
                 lock (gate)
                     if (ReferenceEquals(active, capture) && text.Length > 0)
                         Transcript?.Invoke(capture.Start.AddSeconds(offset), text);

@@ -5,6 +5,8 @@ using System.Text;
 
 namespace Artho.Transcreve;
 
+internal enum RecognitionMode { Standard, Precise }
+
 internal sealed class WhisperEngine(string data)
 {
     private const string RuntimeUrl = "https://github.com/ggml-org/whisper.cpp/releases/download/b5454/whisper-bin-x64.zip";
@@ -12,6 +14,9 @@ internal sealed class WhisperEngine(string data)
     private const string ModelName = "ggml-small-q5_1.bin";
     private const string ModelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/87cd18b47b941d2f65d09981dad23bb7d0481c77/" + ModelName;
     private const string ModelHash = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb";
+    private const string PreciseName = "ggml-large-v3-turbo-q5_0.bin";
+    private const string PreciseUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + PreciseName;
+    private const string PreciseHash = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2";
     private const string VadName = "ggml-silero-v5.1.2.bin";
     private const string VadUrl = "https://huggingface.co/ggml-org/whisper-vad/resolve/e5614ed76a5dd4b03fad5068c89efcd2617a9d1e/" + VadName;
     private const string VadHash = "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf";
@@ -20,12 +25,29 @@ internal sealed class WhisperEngine(string data)
 
     private string EngineDirectory => Path.Combine(data, "whisper-b5454");
     private string Executable => Path.Combine(EngineDirectory, "whisper-cli.exe");
-    private string Model => Path.Combine(data, ModelName);
+    private string Model(RecognitionMode mode) => Path.Combine(data, mode == RecognitionMode.Precise ? PreciseName : ModelName);
     private string Vad => Path.Combine(data, VadName);
-    public bool Ready => File.Exists(Executable) && File.Exists(Path.Combine(EngineDirectory, "ggml.dll")) &&
-        File.Exists(Model) && File.Exists(Vad);
+    private string ModeFile => Path.Combine(data, "recognition-mode.txt");
+    public bool Ready(RecognitionMode mode) => File.Exists(Executable) && File.Exists(Path.Combine(EngineDirectory, "ggml.dll")) &&
+        File.Exists(Model(mode)) && File.Exists(Vad);
 
-    public async Task InstallAsync(IProgress<string> progress, CancellationToken cancellation)
+    public RecognitionMode PreferredMode()
+    {
+        try { return File.ReadAllText(ModeFile).Trim() == "precise" ? RecognitionMode.Precise : RecognitionMode.Standard; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return RecognitionMode.Standard; }
+    }
+
+    public void SaveMode(RecognitionMode mode)
+    {
+        try
+        {
+            Directory.CreateDirectory(data);
+            File.WriteAllText(ModeFile, mode == RecognitionMode.Precise ? "precise" : "standard");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
+    public async Task InstallAsync(RecognitionMode mode, IProgress<string> progress, CancellationToken cancellation)
     {
         Directory.CreateDirectory(data);
         await Task.Run(async () =>
@@ -61,29 +83,33 @@ internal sealed class WhisperEngine(string data)
                 }
             }
 
-            await InstallModelAsync(Model, ModelUrl, ModelHash, "modelo Whisper Small", progress, cancellation);
+            if (mode == RecognitionMode.Precise)
+                await InstallModelAsync(Model(mode), PreciseUrl, PreciseHash, "Whisper Large v3 Turbo", progress, cancellation, 650_000_000);
+            else
+                await InstallModelAsync(Model(mode), ModelUrl, ModelHash, "Whisper Small", progress, cancellation);
             await InstallModelAsync(Vad, VadUrl, VadHash, "detector de fala", progress, cancellation);
         }, cancellation);
     }
 
     private static async Task InstallModelAsync(string path, string url, string hash, string label,
-        IProgress<string> progress, CancellationToken cancellation)
+        IProgress<string> progress, CancellationToken cancellation, long maxBytes = 200_000_000)
     {
         if (File.Exists(path)) return;
         var partial = path + ".download";
         try
         {
-            await DownloadAsync(url, hash, partial, label, progress, cancellation);
+            await DownloadAsync(url, hash, partial, label, progress, cancellation, maxBytes);
             File.Move(partial, path, overwrite: true);
         }
         finally { File.Delete(partial); }
     }
 
-    private static async Task DownloadAsync(string url, string expected, string path, string label, IProgress<string> progress, CancellationToken cancellation)
+    private static async Task DownloadAsync(string url, string expected, string path, string label,
+        IProgress<string> progress, CancellationToken cancellation, long maxBytes = 200_000_000)
     {
         progress.Report($"Baixando {label}…");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        deadline.CancelAfter(TimeSpan.FromMinutes(10));
+        deadline.CancelAfter(TimeSpan.FromMinutes(maxBytes > 200_000_000 ? 30 : 10));
         var token = deadline.Token;
         using var response = await Downloads.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
         response.EnsureSuccessStatusCode();
@@ -100,7 +126,7 @@ internal sealed class WhisperEngine(string data)
             await file.WriteAsync(buffer.AsMemory(0, count), token);
             hash.AppendData(buffer, 0, count);
             total += count;
-            if (total > 200_000_000)
+            if (total > maxBytes)
                 throw new InvalidDataException("O download ultrapassou o tamanho esperado.");
             var percent = expectedSize > 0 ? (int)(100 * total / expectedSize) : 0;
             if (percent >= previouslyReported + 5)
@@ -114,7 +140,7 @@ internal sealed class WhisperEngine(string data)
             throw new InvalidDataException($"A verificação de integridade falhou para {label}. Tente novamente.");
     }
 
-    public async Task<string> TranscribeAsync(byte[] pcm, string language, CancellationToken cancellation)
+    public async Task<string> TranscribeAsync(byte[] pcm, string language, RecognitionMode mode, CancellationToken cancellation)
     {
         var directory = Path.Combine(Path.GetTempPath(), "ArthoTranscreve-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -134,7 +160,7 @@ internal sealed class WhisperEngine(string data)
             };
             // whisper-cli uses narrow Windows paths. The model is passed via a relative
             // path where possible, and the fallback preserves compatibility across disks.
-            var modelPath = Path.GetRelativePath(directory, Model);
+            var modelPath = Path.GetRelativePath(directory, Model(mode));
             var vadPath = Path.GetRelativePath(directory, Vad);
             foreach (var arg in new[] { "-m", modelPath, "-f", "audio.wav", "-of", "texto",
                          "-l", language, "-t", Math.Clamp(Environment.ProcessorCount / 2, 2, 8).ToString(),
