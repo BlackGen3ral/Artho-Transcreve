@@ -1,14 +1,15 @@
 using System.Text;
 using System.Runtime.InteropServices;
+using System.Drawing.Drawing2D;
 
 namespace Artho.Transcreve;
 
 internal sealed class DesktopWindow : Form
 {
-    private static readonly Color Canvas = Color.FromArgb(20, 19, 26);
-    private static readonly Color Surface = Color.FromArgb(29, 27, 37);
-    private static readonly Color Raised = Color.FromArgb(40, 37, 52);
-    private static readonly Color Border = Color.FromArgb(58, 53, 73);
+    private static readonly Color Canvas = Color.FromArgb(18, 17, 24);
+    private static readonly Color Surface = Color.FromArgb(27, 25, 35);
+    private static readonly Color Raised = Color.FromArgb(38, 34, 51);
+    private static readonly Color Border = Color.FromArgb(60, 53, 78);
     private static readonly Color Ink = Color.FromArgb(246, 242, 252);
     private static readonly Color Muted = Color.FromArgb(182, 174, 198);
     private static readonly Color Accent = Color.FromArgb(198, 172, 255);
@@ -21,16 +22,16 @@ internal sealed class DesktopWindow : Form
         AccessibleName = "Transcrição", ScrollBars = RichTextBoxScrollBars.Vertical
     };
     private readonly Label status = MakeLabel("", 10, Muted);
-    private readonly Label state = MakeLabel("Iniciando", 10, Accent, bold: true);
+    private readonly CaptureBadge state = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 7, 0, 7) };
     private readonly Label updateStatus = MakeLabel("", 9, Muted);
+    private readonly Label feedback = MakeLabel("", 9, Muted);
     private readonly Label editorHint = MakeLabel("Edite o texto aqui antes de copiar ou salvar.", 9, Muted);
-    private readonly Label levelStatus = MakeLabel("Sem captura", 9, Muted);
     private readonly SignalMeter meter = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 5, 0, 2) };
     private readonly Button setup = MakeButton("Baixar modelo de voz", true);
     private readonly Button begin = MakeButton("Iniciar captura", true);
-    private readonly Button stop = MakeButton("Finalizar captura");
+    private readonly Button stop = MakeButton("Finalizar captura", true);
     private readonly Button copy = MakeButton("Copiar");
-    private readonly Button export = MakeButton("Salvar TXT", true);
+    private readonly Button export = MakeButton("Salvar TXT");
     private readonly Button clear = MakeButton("Limpar");
     private readonly ComboBox language = MakeSelect("Idioma da fala", ["Português", "Automático", "Inglês", "Espanhol"]);
     private readonly ComboBox quality = MakeSelect("Precisão do reconhecimento", ["Padrão", "Alta precisão"]);
@@ -55,8 +56,8 @@ internal sealed class DesktopWindow : Form
         bridge.Transcript = (time, text) => OnUi(() => Append(time, text));
         Text = "Artho Transcreve";
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
-        ClientSize = new Size(1020, 665);
-        MinimumSize = new Size(795, 645);
+        ClientSize = new Size(1100, 720);
+        MinimumSize = new Size(825, 615);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Canvas;
         ForeColor = Ink;
@@ -65,53 +66,75 @@ internal sealed class DesktopWindow : Form
 
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(28, 20, 28, 14)
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(26, 16, 26, 10)
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 138));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         Controls.Add(layout);
 
-        var title = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
-        title.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
-        title.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
-        title.Controls.Add(MakeLabel("Artho Transcreve", 29, Ink, bold: true), 0, 0);
-        title.Controls.Add(MakeLabel("Transcrição de áudio do TikTok", 11, Muted), 0, 1);
-        layout.Controls.Add(title, 0, 0);
-
-        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
-        body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 274));
-        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.Controls.Add(body, 0, 1);
-
-        var capturePanel = new TableLayoutPanel
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, Margin = new Padding(0, 0, 0, 16) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 172));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        header.Controls.Add(new PictureBox
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 13, BackColor = Surface,
-            Padding = new Padding(18), Margin = new Padding(0, 0, 18, 0)
+            Image = Icon?.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill,
+            Margin = new Padding(0, 8, 12, 8), TabStop = false
+        }, 0, 0);
+        var brand = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = new Padding(0, 1, 0, 2) };
+        brand.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        brand.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        brand.Controls.Add(MakeLabel("Artho Transcreve", 24, Ink, bold: true), 0, 0);
+        brand.Controls.Add(MakeLabel("Transcrição de áudio do TikTok", 10, Muted), 0, 1);
+        header.Controls.Add(brand, 1, 0);
+        header.Controls.Add(state, 2, 0);
+
+        var pairing = MakeButton("Copiar código");
+        pairing.AccessibleName = "Copiar código para conectar a extensão";
+        pairing.Dock = DockStyle.Fill;
+        pairing.Margin = new Padding(10, 14, 0, 14);
+        pairing.Click += (_, _) =>
+        {
+            if (CopyToClipboard(code)) feedback.Text = "Código da extensão copiado.";
         };
+        header.Controls.Add(pairing, 3, 0);
+        layout.Controls.Add(header, 0, 0);
+
+        var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 3, Margin = Padding.Empty, BackColor = Surface };
         capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var height in new[] { 33, 24, 54, 26, 19, 24, 27, 37, 43, 43, 43, 43 })
-            capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
+        capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 174));
+        capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
         capturePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        capturePanel.Controls.Add(MakeLabel("Captura", 14, Ink, bold: true), 0, 0);
-        capturePanel.Controls.Add(state, 0, 1);
+        capturePanel.Controls.Add(MakeLabel("Nível de áudio", 9, Muted, bold: true), 0, 0);
+        capturePanel.Controls.Add(MakeLabel("Idioma da fala", 9, Muted, bold: true), 1, 0);
+        capturePanel.Controls.Add(MakeLabel("Precisão", 9, Muted, bold: true), 2, 0);
+        capturePanel.Controls.Add(meter, 0, 1);
+        foreach (var select in new[] { language, quality })
+            select.Margin = new Padding(0, 4, 14, 0);
+        capturePanel.Controls.Add(language, 1, 1);
+        capturePanel.Controls.Add(quality, 2, 1);
+
+        var captureAction = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0) };
+        foreach (var button in new[] { setup, begin, stop })
+        {
+            button.Dock = DockStyle.Fill;
+            button.Margin = Padding.Empty;
+            captureAction.Controls.Add(button);
+        }
+        capturePanel.Controls.Add(captureAction, 3, 1);
+        status.Margin = new Padding(0, 4, 0, 0);
         capturePanel.Controls.Add(status, 0, 2);
-        capturePanel.Controls.Add(MakeLabel("Nível de áudio", 10, Ink, bold: true), 0, 3);
-        capturePanel.Controls.Add(meter, 0, 4);
-        capturePanel.Controls.Add(levelStatus, 0, 5);
-        var options = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
-        options.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
-        options.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        options.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        options.Controls.Add(MakeLabel("Idioma da fala", 9, Ink, bold: true), 0, 0);
-        options.Controls.Add(MakeLabel("Precisão", 9, Ink, bold: true), 1, 0);
-        language.Margin = new Padding(0, 0, 7, 0);
-        options.Controls.Add(language, 0, 1);
-        options.Controls.Add(quality, 1, 1);
-        capturePanel.Controls.Add(options, 0, 6);
-        capturePanel.SetRowSpan(options, 2);
+        capturePanel.SetColumnSpan(status, 4);
+        layout.Controls.Add(MakeCard(capturePanel, new Padding(0, 0, 0, 14), new Padding(18, 11, 18, 8)), 0, 1);
+
         bridge.Mode = engine.PreferredMode();
         quality.SelectedIndex = (int)bridge.Mode;
         language.SelectedIndexChanged += (_, _) => bridge.Language = new[] { "pt", "auto", "en", "es" }[language.SelectedIndex];
@@ -122,53 +145,57 @@ internal sealed class DesktopWindow : Form
             SetStatus(ReadyMessage());
         };
 
-        var pairing = MakeButton("Copiar código do app");
-        pairing.Click += (_, _) =>
-        {
-            if (CopyToClipboard(code)) pairing.Text = "Código copiado";
-        };
-        foreach (var button in new[] { pairing, setup, begin, stop })
-        {
-            button.Dock = DockStyle.Fill;
-            button.Margin = new Padding(0, 5, 0, 2);
-        }
-        capturePanel.Controls.Add(pairing, 0, 8);
-        capturePanel.Controls.Add(begin, 0, 9);
-        capturePanel.Controls.Add(stop, 0, 10);
-        capturePanel.Controls.Add(setup, 0, 11);
-        body.Controls.Add(capturePanel, 0, 0);
-
         var editor = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Surface,
-            Padding = new Padding(22, 15, 22, 12), Margin = Padding.Empty
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, BackColor = Surface, Margin = Padding.Empty
         };
         editor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        editor.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 284));
         editor.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-        editor.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
+        editor.RowStyles.Add(new RowStyle(SizeType.Absolute, 23));
         editor.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        editor.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         editor.Controls.Add(MakeLabel("Transcrição", 17, Ink, bold: true), 0, 0);
         editor.Controls.Add(editorHint, 0, 1);
-        var textRegion = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1, 10, 1, 10), Margin = Padding.Empty };
+        clear.AutoSize = copy.AutoSize = export.AutoSize = false;
+        clear.Size = copy.Size = new Size(78, 36);
+        export.Size = new Size(104, 36);
+        var actions = Row(export, copy, clear);
+        actions.FlowDirection = FlowDirection.RightToLeft;
+        editor.Controls.Add(actions, 1, 0);
+        editor.SetRowSpan(actions, 2);
+
+        var textRegion = new CardPanel(Canvas)
+        {
+            Dock = DockStyle.Fill, Padding = new Padding(16, 15, 16, 14), Margin = new Padding(0, 5, 0, 1),
+            BackColor = Surface
+        };
+        transcript.BackColor = Canvas;
         textRegion.Controls.Add(transcript);
         empty.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        empty.BackColor = Canvas;
         empty.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
         empty.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-        empty.RowStyles.Add(new RowStyle(SizeType.Absolute, 49));
+        empty.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         empty.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
         var emptyTitle = MakeLabel("Nenhum texto ainda", 15, Ink, bold: true);
-        var emptyGuide = MakeLabel("Abra o TikTok e clique em Iniciar captura.\nO texto aparece aqui e pode ser editado.", 10, Muted);
+        var emptyGuide = MakeLabel("Abra o TikTok e inicie a captura.\nVocê pode editar o texto assim que ele aparecer.", 10, Muted);
         emptyTitle.TextAlign = emptyGuide.TextAlign = ContentAlignment.MiddleCenter;
         empty.Controls.Add(emptyTitle, 0, 1);
         empty.Controls.Add(emptyGuide, 0, 2);
         textRegion.Controls.Add(empty);
         editor.Controls.Add(textRegion, 0, 2);
-        editor.Controls.Add(Row(export, copy, clear), 0, 3);
-        body.Controls.Add(editor, 1, 0);
+        editor.SetColumnSpan(textRegion, 2);
+        layout.Controls.Add(MakeCard(editor, Padding.Empty, new Padding(18, 12, 18, 18)), 0, 2);
 
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 67));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         updateStatus.Text = $"Versão {AppUpdate.Current.ToString(3)} • Atualizações automáticas";
-        layout.Controls.Add(updateStatus, 0, 2);
+        feedback.TextAlign = ContentAlignment.MiddleRight;
+        footer.Controls.Add(updateStatus, 0, 0);
+        footer.Controls.Add(feedback, 1, 0);
+        layout.Controls.Add(footer, 0, 3);
 
         setup.Visible = !engine.Ready(bridge.Mode);
         setup.Enabled = false;
@@ -184,10 +211,14 @@ internal sealed class DesktopWindow : Form
                 "Abra a extensão na aba do TikTok para conectar.");
         };
         stop.Click += (_, _) => bridge.Finish();
-        copy.Click += (_, _) => CopyToClipboard(GetText());
+        copy.Click += (_, _) => { if (CopyToClipboard(GetText())) feedback.Text = "Transcrição copiada."; };
         export.Click += (_, _) => ExportText();
-        clear.Click += (_, _) => ResetTranscript();
-        transcript.TextChanged += (_, _) => UpdateEditorActions();
+        clear.Click += (_, _) => { ResetTranscript(); feedback.Text = ""; };
+        transcript.TextChanged += (_, _) =>
+        {
+            UpdateEditorActions();
+            feedback.Text = "";
+        };
         heartbeat.Tick += async (_, _) =>
         {
             bridge.Expire();
@@ -313,20 +344,23 @@ internal sealed class DesktopWindow : Form
         var level = bridge.AudioLevel;
         var waiting = bridge.Browser.Waiting;
         var modelReady = engine.Ready(bridge.Mode);
-        state.Text = finishing ? "Finalizando" : active ? "Capturando" : waiting ? "Buscando aba" :
+        var label = !ready ? "Iniciando" : finishing ? "Finalizando" : active ? "Capturando" : waiting ? "Buscando aba" :
             installingEngine ? "Baixando modelo" : !modelReady ? "Modelo pendente" :
             bridge.Browser.Connected ? "Extensão conectada" : "Aguardando extensão";
-        state.ForeColor = active && !finishing ? Color.FromArgb(146, 226, 195) : Accent;
+        state.ShowState(label, active && !finishing, bridge.Browser.Connected);
+        stop.Visible = active;
+        begin.Visible = !active && modelReady && !installingEngine;
+        begin.Text = waiting ? "Buscando aba…" : "Iniciar captura";
+        stop.Text = finishing ? "Finalizando…" : "Finalizar captura";
         stop.Enabled = active && !finishing;
         begin.Enabled = ready && modelReady && !active && !waiting && !installingEngine;
         language.Enabled = !active;
         quality.Enabled = !active && !waiting && !installingEngine;
-        setup.Visible = !modelReady || installingEngine;
+        setup.Visible = !active && (!modelReady || installingEngine);
         setup.Enabled = ready && !active && !waiting && !installingEngine;
-        setup.Text = bridge.Mode == RecognitionMode.Precise ? "Baixar modelo · 574 MB" : "Baixar modelo de voz";
-        meter.SetLevel(level);
-        levelStatus.Text = finishing ? "Processando últimos trechos" :
-            active ? (level > 0 ? "Áudio recebido" : "Aguardando som da aba") : "Sem captura";
+        setup.Text = installingEngine ? "Baixando…" :
+            bridge.Mode == RecognitionMode.Precise ? "Baixar modelo · 574 MB" : "Baixar modelo de voz";
+        meter.SetLevel(active && !finishing ? level : 0);
     }
 
     private string ReadyMessage() => engine.Ready(bridge.Mode)
@@ -371,6 +405,17 @@ internal sealed class DesktopWindow : Form
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, ref Point point);
 
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, uint attribute, in int value, uint length);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        const uint useImmersiveDarkMode = 20;
+        int darkMode = 1;
+        DwmSetWindowAttribute(Handle, useImmersiveDarkMode, in darkMode, sizeof(int));
+    }
+
     private void ResetTranscript()
     {
         transcript.Clear();
@@ -398,8 +443,22 @@ internal sealed class DesktopWindow : Form
     {
         using var dialog = new SaveFileDialog { Filter = "Texto UTF-8 (*.txt)|*.txt", FileName = $"TikTok-{DateTime.Now:yyyy-MM-dd-HHmm}.txt" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        try { File.WriteAllText(dialog.FileName, GetText(), Encoding.UTF8); }
+        try
+        {
+            File.WriteAllText(dialog.FileName, GetText(), Encoding.UTF8);
+            feedback.Text = "Transcrição salva.";
+        }
         catch (Exception error) { MessageBox.Show(this, error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+    }
+
+    protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+    {
+        if (keyData == (Keys.Control | Keys.S) && export.Enabled)
+        {
+            ExportText();
+            return true;
+        }
+        return base.ProcessCmdKey(ref message, keyData);
     }
 
     private void OnUi(Action action)
@@ -445,40 +504,159 @@ internal sealed class DesktopWindow : Form
         return select;
     }
 
-    private sealed class SignalMeter : Control
+    private static Panel MakeCard(Control content, Padding margin, Padding padding)
     {
-        private int level;
-        public void SetLevel(int value)
+        var card = new CardPanel(Surface) { Dock = DockStyle.Fill, Margin = margin, Padding = padding, BackColor = Canvas };
+        card.Controls.Add(content);
+        return card;
+    }
+
+    private static GraphicsPath Round(RectangleF rect, float radius)
+    {
+        var shape = new GraphicsPath();
+        float size = radius * 2;
+        shape.AddArc(rect.Left, rect.Top, size, size, 180, 90);
+        shape.AddArc(rect.Right - size, rect.Top, size, size, 270, 90);
+        shape.AddArc(rect.Right - size, rect.Bottom - size, size, size, 0, 90);
+        shape.AddArc(rect.Left, rect.Bottom - size, size, size, 90, 90);
+        shape.CloseFigure();
+        return shape;
+    }
+
+    private sealed class CardPanel : Panel
+    {
+        private readonly Color background;
+
+        public CardPanel(Color background)
         {
-            if (value == level) return;
-            level = value;
+            this.background = background;
+            DoubleBuffered = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (ClientSize.Width < 24 || ClientSize.Height < 24) return;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var shape = Round(new RectangleF(0.5f, 0.5f, Width - 2, Height - 2), 13);
+            using var fill = new SolidBrush(background);
+            using var pen = new Pen(Border);
+            e.Graphics.FillPath(fill, shape);
+            e.Graphics.DrawPath(pen, shape);
+        }
+    }
+
+    private sealed class CaptureBadge : Control
+    {
+        private static readonly Color Active = Color.FromArgb(141, 229, 190);
+        private static readonly Font BadgeFont = new("Segoe UI", 9, FontStyle.Bold);
+        private string label = "Iniciando";
+        private Color tone = Muted;
+        public CaptureBadge()
+        {
+            DoubleBuffered = true;
+            TabStop = false;
+            AccessibleName = label;
+        }
+
+        public void ShowState(string value, bool live, bool connected)
+        {
+            var next = live ? Active : connected ? Accent : Muted;
+            if (value == label && next == tone) return;
+            label = value;
+            tone = next;
+            AccessibleName = value;
             Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            const int bars = 20;
-            float width = ClientSize.Width / (float)bars;
-            if (width <= 3 || ClientSize.Height <= 2) return;
-            using var on = new SolidBrush(Color.FromArgb(146, 226, 195));
-            using var off = new SolidBrush(Border);
-            for (int i = 0; i < bars; i++)
-                e.Graphics.FillRectangle(i * 100 < level * bars ? on : off, i * width, 1, width - 3, ClientSize.Height - 2);
+            var box = new Rectangle(0, Math.Max(0, (Height - 32) / 2), Width - 1, 32);
+            if (box.Width < 24 || Height < 32) return;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var shape = Round(box, 10);
+            using var fill = new SolidBrush(Raised);
+            using var dot = new SolidBrush(tone);
+            e.Graphics.FillPath(fill, shape);
+            e.Graphics.FillEllipse(dot, box.X + 12, box.Y + 13, 6, 6);
+            TextRenderer.DrawText(e.Graphics, label, BadgeFont,
+                new Rectangle(box.X + 25, box.Y, box.Width - 28, box.Height), tone,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
         }
     }
 
-    private static Button MakeButton(string text, bool primary = false)
+    private sealed class SignalMeter : Control
     {
-        var button = new Button
+        private int level;
+        public SignalMeter()
         {
-            Text = text, AutoSize = true, Padding = new Padding(12, 0, 12, 0),
-            MinimumSize = new Size(0, 34), Margin = new Padding(0, 6, 8, 0),
-            BackColor = primary ? Accent : Raised, ForeColor = primary ? Canvas : Ink,
-            FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false
-        };
-        button.FlatAppearance.BorderColor = primary ? Accent : Border;
-        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(220, 204, 255) : Border;
-        return button;
+            DoubleBuffered = true;
+            TabStop = false;
+            AccessibleName = "Nível de áudio";
+        }
+
+        public void SetLevel(int value)
+        {
+            if (value == level) return;
+            level = value;
+            AccessibleDescription = $"{level} de 100";
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            const int bars = 24;
+            float width = (ClientSize.Width - 18) / (float)bars;
+            if (width <= 3 || Height < 10) return;
+            using var on = new SolidBrush(Color.FromArgb(141, 229, 190));
+            using var off = new SolidBrush(Border);
+            for (int i = 0; i < bars; i++)
+                e.Graphics.FillRectangle(i * 100 < level * bars ? on : off,
+                    i * width, (ClientSize.Height - 9) / 2f, width - 3, 9);
+        }
+    }
+
+    private static Button MakeButton(string text, bool primary = false) => new ActionButton(primary)
+    {
+        Text = text, AutoSize = true, Padding = new Padding(10, 0, 10, 0),
+        MinimumSize = new Size(0, 36), Margin = new Padding(6, 4, 0, 0),
+        FlatStyle = FlatStyle.Flat, UseVisualStyleBackColor = false
+    };
+
+    private sealed class ActionButton(bool primary) : Button
+    {
+        private bool hovering;
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            hovering = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            hovering = false;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(Parent?.BackColor ?? Canvas);
+            if (Width < 18 || Height < 18) return;
+            var background = !Enabled ? Surface : primary ? (hovering ? Color.FromArgb(220, 204, 255) : Accent) : hovering ? Border : Raised;
+            var foreground = !Enabled ? Muted : primary ? Canvas : Ink;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var shape = Round(new RectangleF(0.5f, 0.5f, Width - 2, Height - 2), 8);
+            using var fill = new SolidBrush(background);
+            using var pen = new Pen(Focused ? Accent : Enabled && primary ? background : Border);
+            e.Graphics.FillPath(fill, shape);
+            e.Graphics.DrawPath(pen, shape);
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, foreground,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        }
     }
 }
